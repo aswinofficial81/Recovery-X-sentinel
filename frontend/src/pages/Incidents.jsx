@@ -18,7 +18,9 @@ import {
     getIncidentTransactions,
     analyzeRecovery,
     executeRecovery,
+    getRecoveryConfig,
 } from "../services/api";
+
 import AIIncidentReport from "../components/AIIncidentReport";
 
 function formatIncidentName(type) {
@@ -256,10 +258,18 @@ export default function Incidents() {
     }
 
     // Open Razorpay Checkout for a transaction with an active order
-    const openCheckout = (tx, orderId, amount) => {
+    const openCheckout = async (tx, orderId, amount) => {
         const transactionId = tx.id || tx.transaction_id;
         const finalAmount = Number(amount || tx.amount || 0);
-        const keyId = import.meta.env.VITE_RAZORPAY_KEY_ID;
+        let keyId = import.meta.env.VITE_RAZORPAY_KEY_ID;
+        if (!keyId) {
+            try {
+                const config = await getRecoveryConfig();
+                keyId = config?.razorpay_key_id;
+            } catch (err) {
+                console.warn("Could not load recovery config:", err);
+            }
+        }
         const keyParam = keyId ? `&key_id=${encodeURIComponent(keyId)}` : "";
         const paymentUrl = `http://localhost:5500/test_payment.html?order_id=${encodeURIComponent(
             orderId
@@ -268,6 +278,7 @@ export default function Incidents() {
         )}${keyParam}`;
         window.open(paymentUrl, "_blank");
     };
+
 
 
     if (loading) {

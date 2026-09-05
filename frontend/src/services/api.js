@@ -24,6 +24,11 @@ export async function getRecoveryMetrics() {
     return fetchAPI("/api/recovery/metrics");
 }
 
+export async function getRecoveryConfig() {
+    return fetchAPI("/api/recovery/config");
+}
+
+
 export async function getIncidentTransaction(incidentType) {
     const response = await fetch(
         `${API_BASE_URL}/api/recovery/incident/${encodeURIComponent(
