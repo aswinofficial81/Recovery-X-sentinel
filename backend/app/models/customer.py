@@ -1,0 +1,1 @@
+# Customer model skeleton

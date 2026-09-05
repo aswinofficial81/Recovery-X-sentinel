@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "lucide-react": "^1.40.0",
+    "nodemon": "^3.1.14"
+  }
+}
