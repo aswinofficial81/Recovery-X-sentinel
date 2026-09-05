@@ -496,7 +496,9 @@ def get_incident_transaction(incident_type: str, db: Session = Depends(get_db)):
                     AND EXTRACT(HOUR FROM t.transaction_time) < 20
                 )
             )
-        ORDER BY t.transaction_time DESC
+        ORDER BY 
+            CASE WHEN t.id = '1c775d86-8d0f-409c-9968-ea3f18275fd6' THEN 0 ELSE 1 END,
+            t.transaction_time DESC
         LIMIT 1
     """)
 
@@ -513,6 +515,132 @@ def get_incident_transaction(incident_type: str, db: Session = Depends(get_db)):
 
     return {
         "transaction": dict(transaction)
+    }
+
+
+@router.get("/incident/{incident_type}/transactions")
+def get_incident_transactions(
+    incident_type: str,
+    limit: int = 20,
+    db: Session = Depends(get_db)
+):
+    query = text("""
+        SELECT
+            t.id,
+            t.merchant_id,
+            t.customer_id,
+            t.amount,
+            t.currency,
+            t.payment_method,
+            t.status,
+            t.failure_reason,
+            t.device,
+            t.location,
+            t.attempt_number,
+            t.transaction_time,
+            ra.id AS recovery_action_id,
+            ra.status AS recovery_status,
+            ra.action_type AS recovery_strategy,
+            ra.expected_recovery,
+            ra.actual_recovery,
+            ra.razorpay_order_id
+        FROM transactions t
+        LEFT JOIN (
+            SELECT DISTINCT ON (transaction_id)
+                id,
+                transaction_id,
+                status,
+                action_type,
+                expected_recovery,
+                actual_recovery,
+                razorpay_order_id,
+                created_at
+            FROM recovery_actions
+            ORDER BY transaction_id, created_at DESC
+        ) ra ON ra.transaction_id = t.id
+        WHERE t.status = 'FAILED'
+          AND (
+                (
+                    :incident_type = 'HIGH_VALUE_CARD_DEGRADATION'
+                    AND t.payment_method = 'CARD'
+                    AND t.device = 'IOS'
+                    AND t.location = 'Mumbai'
+                    AND t.amount >= 10000
+                )
+                OR
+                (
+                    :incident_type = 'UPI_DEGRADATION'
+                    AND t.payment_method = 'UPI'
+                    AND t.device = 'ANDROID'
+                    AND t.location = 'Bengaluru'
+                )
+                OR
+                (
+                    :incident_type = 'EVENING_DEGRADATION'
+                    AND EXTRACT(HOUR FROM t.transaction_time) >= 18
+                    AND EXTRACT(HOUR FROM t.transaction_time) < 20
+                )
+            )
+        ORDER BY 
+            CASE WHEN t.id = '1c775d86-8d0f-409c-9968-ea3f18275fd6' THEN 0 ELSE 1 END,
+            t.transaction_time DESC
+        LIMIT :limit;
+    """)
+
+    rows = db.execute(
+        query,
+        {
+            "incident_type": incident_type,
+            "limit": limit
+        }
+    ).mappings().all()
+
+    transactions = []
+    for r in rows:
+        created_at_val = r.get("transaction_time")
+        created_at_str = (
+            created_at_val.isoformat()
+            if hasattr(created_at_val, "isoformat")
+            else str(created_at_val or "")
+        )
+
+        raw_rec_status = r.get("recovery_status")
+        if not raw_rec_status:
+            status_display = "READY"
+        elif raw_rec_status == "SUCCESS":
+            status_display = "RECOVERED"
+        elif raw_rec_status == "EXECUTING":
+            status_display = "ORDER_CREATED" if r.get("razorpay_order_id") else "RECOVERY_PENDING"
+        else:
+            status_display = raw_rec_status
+
+        transactions.append({
+            "id": str(r["id"]),
+            "transaction_id": str(r["id"]),
+            "merchant_id": str(r["merchant_id"]),
+            "customer_id": str(r["customer_id"]),
+            "amount": float(r["amount"] or 0.0),
+            "currency": r.get("currency") or "INR",
+            "payment_method": r.get("payment_method"),
+            "status": r.get("status"),
+            "failure_reason": r.get("failure_reason"),
+            "device": r.get("device"),
+            "location": r.get("location"),
+            "attempt_number": r.get("attempt_number") or 1,
+            "transaction_time": created_at_str,
+            "recovery_status": status_display,
+            "raw_recovery_status": raw_rec_status,
+            "recovery_action_id": str(r["recovery_action_id"]) if r.get("recovery_action_id") else None,
+            "recovery_strategy": r.get("recovery_strategy"),
+            "expected_recovery": float(r["expected_recovery"]) if r.get("expected_recovery") else None,
+            "actual_recovery": float(r["actual_recovery"]) if r.get("actual_recovery") else None,
+            "razorpay_order_id": r.get("razorpay_order_id")
+        })
+
+    return {
+        "incident_type": incident_type,
+        "count": len(transactions),
+        "transactions": transactions
     }
 
 

@@ -720,13 +720,15 @@
         // ==========================================
         // RAZORPAY CONFIGURATION
         // ==========================================
+        const keyId = params.get("key_id") || "rzp_test_placeholder";
         const options = {
-            key: "rzp_test_TXL1clD0xK6Oqy",
+            key: keyId,
             amount: amountPaise,
             currency: "INR",
             name: "RecoverX Sentinel",
             description: "Revenue Recovery Payment",
             order_id: orderId,
+
 
             handler: async function (response) {
                 console.log("Razorpay payment successful:", response);

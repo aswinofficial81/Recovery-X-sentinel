@@ -1,4 +1,6 @@
-const API_BASE_URL = "http://127.0.0.1:8000";
+const API_BASE_URL =
+    import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
+
 
 async function fetchAPI(endpoint) {
     const response = await fetch(`${API_BASE_URL}${endpoint}`);
@@ -32,6 +34,22 @@ export async function getIncidentTransaction(incidentType) {
     if (!response.ok) {
         throw new Error(
             `Failed to find transaction: ${response.status}`
+        );
+    }
+
+    return response.json();
+}
+
+export async function getIncidentTransactions(incidentType, limit = 20) {
+    const response = await fetch(
+        `${API_BASE_URL}/api/recovery/incident/${encodeURIComponent(
+            incidentType
+        )}/transactions?limit=${limit}`
+    );
+
+    if (!response.ok) {
+        throw new Error(
+            `Failed to fetch incident transactions: ${response.status}`
         );
     }
 
