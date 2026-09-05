@@ -15,10 +15,27 @@ router = APIRouter(
 
 
 # =========================================================
+# RECOVERY CONFIGURATION (PUBLIC CLIENT KEYS)
+# =========================================================
+
+@router.get("/config")
+def get_recovery_config():
+    """
+    Returns public client configuration for Razorpay checkout.
+    Only the public Key ID is returned; secrets are never exposed.
+    """
+    from backend.app.razorpay_client import RAZORPAY_KEY_ID
+    return {
+        "razorpay_key_id": RAZORPAY_KEY_ID or ""
+    }
+
+
+# =========================================================
 # EXECUTE RECOVERY
 # =========================================================
 
 @router.post("/execute/{transaction_id}")
+
 def execute_transaction_recovery(
     transaction_id: str,
     strategy: str,

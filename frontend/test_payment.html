@@ -718,41 +718,80 @@
         }
 
         // ==========================================
-        // RAZORPAY CONFIGURATION
+        // RAZORPAY CONFIGURATION & CHECKOUT
         // ==========================================
-        const keyId = params.get("key_id") || "rzp_test_placeholder";
-        const options = {
-            key: keyId,
-            amount: amountPaise,
-            currency: "INR",
-            name: "RecoverX Sentinel",
-            description: "Revenue Recovery Payment",
-            order_id: orderId,
-
-
-            handler: async function (response) {
-                console.log("Razorpay payment successful:", response);
-                latestRazorpayResponse = response;
-                // Automatically call backend verification
-                await verifyPaymentWithBackend(response);
-            },
-
-            theme: {
-                color: "#6366f1"
+        async function fetchRazorpayKey() {
+            const urlKey = params.get("key_id");
+            if (urlKey && urlKey !== "rzp_test_placeholder") {
+                return urlKey;
             }
-        };
 
-        const razorpay = new Razorpay(options);
+            try {
+                const configRes = await fetch("http://127.0.0.1:8000/api/recovery/config");
+                if (configRes.ok) {
+                    const cfg = await configRes.json();
+                    if (cfg.razorpay_key_id) {
+                        return cfg.razorpay_key_id;
+                    }
+                }
+            } catch (err) {
+                console.warn("Could not fetch recovery config from backend:", err);
+            }
 
-        payButton.onclick = function (e) {
+            return urlKey || "rzp_test_placeholder";
+        }
+
+        payButton.onclick = async function (e) {
             e.preventDefault();
-            razorpay.open();
+            payButton.disabled = true;
+            payButton.textContent = "Loading Gateway...";
+
+            try {
+                const keyId = await fetchRazorpayKey();
+
+                if (!keyId || keyId === "rzp_test_placeholder") {
+                    throw new Error("Razorpay Key ID is missing. Please ensure RAZORPAY_KEY_ID is configured in backend/.env.");
+                }
+
+                const options = {
+                    key: keyId,
+                    amount: amountPaise,
+                    currency: "INR",
+                    name: "RecoverX Sentinel",
+                    description: "Revenue Recovery Payment",
+                    order_id: orderId,
+
+                    handler: async function (response) {
+                        console.log("Razorpay payment successful:", response);
+                        latestRazorpayResponse = response;
+                        await verifyPaymentWithBackend(response);
+                    },
+
+                    theme: {
+                        color: "#6366f1"
+                    }
+                };
+
+                const razorpay = new Razorpay(options);
+                razorpay.on("payment.failed", function (response) {
+                    console.error("Payment failed:", response.error);
+                });
+                razorpay.open();
+            } catch (err) {
+                console.error("Checkout initialization error:", err);
+                initError.style.display = "flex";
+                initError.textContent = err.message;
+            } finally {
+                payButton.disabled = false;
+                payButton.textContent = "Pay Now & Recover Revenue";
+            }
         };
 
         document.getElementById("retry-verify-button").onclick = function (e) {
             e.preventDefault();
             verifyPaymentWithBackend(latestRazorpayResponse);
         };
+
     </script>
 </body>
 
