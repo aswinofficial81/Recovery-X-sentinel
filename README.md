@@ -1,5 +1,5 @@
 # RecoverX Sentinel
-> **Turning payment failures from a dead end into a recovery decision.**
+> **Turning payment failures from a dead end into an autonomous, closed-loop recovery system.**
 
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
@@ -25,22 +25,26 @@ Customer Checkout ──► Failed Transaction ──► Abandoned Cart ──�
 - **Revenue at Risk:** Millions in gross merchandise value (GMV) evaporate into lost conversions.
 - **Blind Retries Backfire:** Blind, naive auto-retries cause card issuer spam flags, elevated gateway processing surcharges, and customer frustration.
 - **Lack of Visibility:** Finance and engineering teams lack unified visibility into systemic revenue leaks across payment channels and geographic segments.
+- **Stale Risk Metrics:** Legacy dashboards report static failure sums that ignore verified re-payments, skewing real-time risk exposure.
 
-**RecoverX Sentinel** transforms payment failure into an autonomous, closed-loop financial operations system. It detects systemic payment degradation, runs predictive machine learning models to rank optimal recovery strategies, generates natural language explanations for operators, enforces deterministic policy guardrails, executes bounded recovery actions via **Razorpay**, and verifies actual ledger recovery with an immutable audit trail.
+**RecoverX Sentinel** transforms payment failure into an autonomous, closed-loop financial operations system. It clusters systemic degradation across multi-dimensional telemetry, calculates dynamic net revenue-at-risk, runs predictive machine learning to rank optimal recovery strategies, enforces deterministic policy guardrails, executes bounded recovery actions via **Razorpay** asynchronously or synchronously, and cryptographically verifies actual ledger recovery with an immutable audit trail.
 
 ---
 
 ## 2. Solution Overview
 
-RecoverX Sentinel acts as an autonomous revenue protection and recovery copilot for merchants:
+RecoverX Sentinel acts as an autonomous revenue protection and recovery copilot for modern commerce platforms:
 
-1. **Continuous Telemetry & Incident Detection:** Continuously scans transactions in PostgreSQL to detect localized degradation patterns (e.g., *High-Value Card Degradation in Mumbai*, *UPI Degradation on Android in Bengaluru*).
-2. **Revenue-at-Risk Quantification:** Aggregates transactions in affected segments to compute the precise financial exposure.
-3. **ML Strategy Ranking:** Leverages trained classification and regression estimators to predict recovery probability and expected recovery across strategies (`ALTERNATIVE_PAYMENT`, `SMART_RETRY`, `DISCOUNT_INCENTIVE`, `CUSTOMER_OUTREACH`).
-4. **Advisory LLM Reasoning:** Generates human-readable strategic rationales, root cause breakdowns, and trade-off comparisons with sub-second deterministic fallback resilience.
-5. **Deterministic Policy Engine:** Enforces merchant-configured bounds (maximum retries, minimum expected recovery value, loss limits) as the un-bypassable gatekeeper before any action is executed.
-6. **Bounded Execution & Verification:** Triggers compliant **Razorpay Orders**, provides instant test checkout routing, cryptographically verifies payments, and updates recovery states.
-7. **Immutable Audit Trail:** Records every execution, cryptographic verification, and state transition to an immutable compliance log.
+1. **Autonomous Incident & Anomaly Clustering:** Groups failure streams across multi-dimensional features (failure code, gateway error, payment rail, bank issuer, geography) to isolate systemic degradation without manual rule definition.
+2. **Dynamic Net Revenue-at-Risk Engine:** Evaluates gross transactional exposure and dynamically subtracts cryptographically verified recoveries in real time:
+   $$\text{Dynamic Revenue at Risk} = \max(0, \text{Gross Failed Volume} - \text{Verified Recoveries})$$
+3. **Multi-Tenant Context & Isolation:** Supports isolated merchant spaces with custom risk floors, retry limits, and header-based authentication (`X-Merchant-ID`) backed by automatic demo fallback.
+4. **ML Strategy Ranking:** Leverages trained classification and regression estimators to predict recovery probability and expected recovery across strategies (`ALTERNATIVE_PAYMENT`, `SMART_RETRY`, `DISCOUNT_INCENTIVE`, `CUSTOMER_OUTREACH`).
+5. **Advisory LLM Synthesis with Sub-Second Fallback:** Generates human-readable strategic rationales, root cause breakdowns, and trade-off comparisons with sub-second deterministic fallback resilience.
+6. **Deterministic Policy Engine:** Enforces merchant-configured bounds (maximum retries, minimum expected recovery value, loss limits) as an un-bypassable gatekeeper before any action is executed.
+7. **Asynchronous Background Recovery Queue:** Dispatches large batches of recovery actions through a non-blocking worker pool with real-time job progress tracking (`/api/recovery/queue/batch`).
+8. **Bounded Execution & Verification:** Triggers compliant **Razorpay Orders**, provides instant test checkout routing, cryptographically verifies payments via HMAC-SHA256, and updates recovery states.
+9. **Immutable Audit Trail:** Records every execution, cryptographic verification, and state transition to an immutable compliance log.
 
 ---
 
@@ -50,85 +54,113 @@ The end-to-end dataflow connects telemetry ingestion to cryptographic ledger ver
 
 ```mermaid
 flowchart TD
-    A[PostgreSQL Telemetry Stream] --> B[Incident & Leak Detection Engine]
-    B --> C[Revenue at Risk Calculation]
-    C --> D[ML Recovery Ranking Engine]
-    D -->|Probability & Expected Value| E[LLM Advisory Explanation Engine]
-    E -->|Structured Reasoning| F[Deterministic Policy Engine]
+    A[PostgreSQL Telemetry Stream] --> B[Multi-Tenant Ingestion & Auth Gate]
+    B --> C[Autonomous Anomaly Clustering Engine]
+    C --> D[Dynamic Net Revenue-at-Risk Engine]
+    D --> E[ML Recovery Ranking Engine]
+    E -->|Probability & Expected Value| F[LLM Advisory Explanation Engine]
+    F -->|Structured Reasoning| G[Deterministic Policy Engine]
     
     subgraph Decision Gate [Deterministic Safety Layer]
-        F -->|Checks Merchant Bounds| G{Policy Decision}
-        G -->|BLOCKED| H[Execution Aborted & Logged]
-        G -->|ALLOW| I[Recovery Executor]
+        G -->|Checks Merchant Bounds| H{Policy Decision}
+        H -->|BLOCKED| I[Execution Aborted & Logged]
+        H -->|ALLOW| J{Execution Mode}
+    end
+    
+    subgraph Dispatch Layer [Execution Router]
+        J -->|Single Interactive| K[Immediate Executor]
+        J -->|Batch Asynchronous| L[Background Recovery Queue]
+        L --> M[Worker Pool Task Runner]
     end
     
     subgraph Execution & Verification [Razorpay Rail]
-        I --> J[Razorpay Order Creation]
-        J --> K[Customer Checkout / Re-attempt]
-        K --> L[Razorpay Payment Verification API]
-        L --> M{Signature Valid?}
-        M -->|No| N[Payment Failed / Invalid Signature]
-        M -->|Yes| O[Verified Actual Recovery]
+        K --> N[Razorpay Order Creation]
+        M --> N
+        N --> O[Customer Checkout / Re-attempt]
+        O --> P[Razorpay Payment Verification API]
+        P --> Q{Signature Valid?}
+        Q -->|No| R[Payment Failed / Invalid Signature]
+        Q -->|Yes| S[Verified Actual Recovery]
     end
     
-    O --> P[(PostgreSQL recovery_actions)]
-    P --> Q[Immutable Audit Trail]
-    Q --> R[Real-time Analytics & Financial Dashboard]
+    S --> T[(PostgreSQL recovery_actions)]
+    T --> U[Immutable Audit Trail]
+    U --> V[Real-time Analytics & Financial Dashboard]
+    T -.->|Updates Net Risk in Real Time| D
 ```
 
 ---
 
 ## 4. Implementation Strategy: Layer-by-Layer
 
-### 1. Data Ingestion & Relational Schema
+### 1. Data Ingestion & Multi-Tenant Schema
 All entities are modeled with strict foreign keys and relational integrity in PostgreSQL via SQLAlchemy:
 - `merchants`: Merchant profile, default policy thresholds, and active status.
 - `customers`: Customer history, lifetime value, and past payment success rates.
 - `transactions`: Telemetry stream including payment method (`CARD`, `UPI`), bank issuer, amount, failure reason, city, and status.
-- `revenue_leaks`: Grouped incident clusters with leak type, severity, and calculated revenue at risk.
+- `revenue_leaks`: Grouped incident clusters with leak type, severity, and dynamically evaluated revenue at risk.
 - `recovery_actions`: Individual recovery executions tracking `status` (`EXECUTING`, `SUCCESS`, `FAILED`), `expected_recovery`, `actual_recovery`, and `razorpay_order_id`.
 - `audit_logs`: Append-only compliance log tracking `RECOVERY_EXECUTED` and `RECOVERY_VERIFIED` events.
 
-### 2. Incident Detection & Revenue at Risk
-The detection engine queries transactions across sliding time windows and multidimensional segments. When failure rates exceed predefined baseline thresholds:
-- Segments are flagged (e.g., `HIGH_VALUE_CARD_DEGRADATION` where failure rate > 30% on transactions > ₹5,000).
-- **Revenue at Risk** is calculated as the sum of failed transaction amounts within the active degradation window.
+### 2. Multi-Tenant Context & Authentication (`backend/app/auth.py`)
+- Resolves tenant context via standard headers: `X-Merchant-ID: <uuid>` or `Authorization: Bearer <uuid>`.
+- Provides an automated fallback to the default active merchant for frictionless local development and standalone dashboard use.
+- Allows programmatic merchant onboarding through `POST /api/merchants`.
 
-### 3. Machine Learning Recovery Prediction
-Trained scikit-learn models evaluate features including:
-- Customer historical success rate
+### 3. Autonomous Incident Clustering (`ml/models/incident_clustering.py`)
+The anomaly clustering engine scans high-velocity transaction windows to isolate systemic degradations:
+- **Feature Dimensions:** Evaluates tuples of `(failure_reason, gateway_error_code, payment_method, bank_issuer, city)`.
+- **Dynamic Severity Scoring:** Computes dynamic severity levels (`CRITICAL`, `HIGH`, `MEDIUM`, `LOW`) based on composite score:
+  $$\text{Score} = (\text{Volume} \times 0.3) + (\text{Failure Velocity} \times 0.4) + \left(\frac{\text{Exposure}}{100,000} \times 0.3\right)$$
+- Automatically groups disparate transactions into actionable leak clusters.
+
+### 4. Dynamic Net Revenue-at-Risk Engine (`ml/models/revenue_risk.py`)
+Legacy systems rely on static snapshots of failed transaction amounts. Sentinel dynamically recalculates exposure:
+- **Gross Risk:** Sum of all failed transactions within the active segment.
+- **Recovered Offset:** Sum of all cryptographically verified recoveries (`actual_recovery`) linked to transactions in the incident.
+- **Net Revenue at Risk:** $\max(0, \text{Gross Exposure} - \text{Verified Recoveries})$.
+- As soon as a payment is verified, the incident's displayed revenue-at-risk shrinks automatically.
+
+### 5. Machine Learning Recovery Prediction (`ml/models/strategy_ranking.py`)
+Trained scikit-learn models evaluate multi-modal features including:
+- Customer historical success rate and lifetime value
 - Transaction amount and payment method
 - Gateway error code and issuer response latency
 - Time elapsed since failure and attempt number
 
-The ML engine predicts:
+The ML engine outputs:
 - **Recovery Probability:** Statistical likelihood that the customer converts under a candidate strategy.
 - **Expected Recovery:** Projected value calculated as $\text{Amount} \times \text{Recovery Probability}$.
+- Strategies are dynamically ranked by Expected Recovery value.
 
-Strategies are dynamically ranked by Expected Recovery value.
-
-### 4. LLM Synthesis & Resilient Fallback
+### 6. LLM Synthesis & Resilient Fallback (`agent/llm_client.py`)
 The LLM layer synthesizes a structured operational briefing:
-- **Root Cause:** Identifies specific auth failure triggers.
-- **Why This Strategy:** Justifies why an alternative rail (e.g., UPI) outperforms an immediate card retry.
-- **Strategy Matrix:** Comparative table detailing probability, customer action required, and estimated time to recovery.
+- **Root Cause Analysis:** Pinpoints specific authorization and gateway failure triggers.
+- **Strategy Justification:** Explains why an alternative rail (e.g., UPI) outperforms an immediate card retry.
+- **Strategy Matrix:** Comparative breakdown detailing probability, customer action required, and estimated time to recovery.
 - **Dual-Mode Resilience:** If the external LLM proxy experiences latency (> 7 seconds), Sentinel automatically triggers the rule-based fallback model, setting `fallback_used: true` to prevent UI stalls while preserving 100% of ML rankings and policy decisions.
 
-### 5. Deterministic Policy Engine (The Gatekeeper)
-AI is never permitted to execute actions autonomously without deterministic validation. The Policy Engine enforces:
-- Max retry bounds per customer/day
-- Merchant minimum expected recovery floor
+### 7. Deterministic Policy Engine (`ml/models/policy_engine.py`)
+AI is strictly advisory and cannot execute actions autonomously. The Policy Engine enforces:
+- Max retry bounds per customer per 24-hour cycle
+- Merchant minimum expected recovery value floor
 - Daily loss caps and risk tolerances
-- Overdue cooldown intervals
+- Cooldown intervals between attempts
 
-### 6. Razorpay Integration & Payment Verification
-When an operator triggers recovery:
+### 8. Asynchronous Background Recovery Queue (`backend/app/services/recovery_queue.py`)
+For merchants experiencing high transaction volumes:
+- Dispatches batch recovery payloads asynchronously via `POST /api/recovery/queue/batch`.
+- Non-blocking background worker processes each transaction through ML ranking, policy validation, and Razorpay order generation.
+- Real-time job polling via `GET /api/recovery/queue/jobs/{job_id}` reporting granular progress counters (`total`, `processed`, `succeeded`, `failed`).
+
+### 9. Razorpay Integration & Cryptographic Verification (`backend/app/razorpay_client.py`)
+When a recovery action is triggered:
 1. `RazorpayClient` creates an authenticated order via Razorpay REST API (`POST /v1/orders`).
-2. Order metadata references the failed transaction ID and amount.
+2. Order metadata links directly to the failed transaction ID and amount.
 3. The checkout portal (`test_payment.html`) handles test card and UPI simulation.
 4. On completion, the backend verifies the payment signature against the merchant secret:
-   $\text{HMAC-SHA256}(\text{order\_id} \parallel "|" \parallel \text{payment\_id}, \text{secret})$
-5. Only upon cryptographic confirmation is the recovery action marked `SUCCESS` and counted toward `actual_recovered`.
+   $$\text{HMAC-SHA256}(\text{order\_id} \parallel "|" \parallel \text{payment\_id}, \text{secret})$$
+5. Only upon cryptographic confirmation is the recovery action marked `SUCCESS` and recorded in the immutable financial ledger.
 
 ---
 
@@ -140,7 +172,8 @@ When an operator triggers recovery:
 | **Design System** | Custom Vanilla CSS Design Tokens | High typography hierarchy, soft cards, zero layout shift |
 | **Backend API** | Python 3.11+, FastAPI, Pydantic v2 | High-performance asynchronous API, CORS middleware, strict validation |
 | **Database & ORM** | PostgreSQL 16, SQLAlchemy 2.0, Alembic | Relational storage, ACID transaction handling, migration management |
-| **Machine Learning** | scikit-learn, NumPy, Pandas | Recovery probability estimation, expected recovery calculation |
+| **Async Task Queue** | Python `asyncio` Background Workers | Non-blocking batch execution and recovery queue processing |
+| **Machine Learning** | scikit-learn, NumPy, Pandas | Recovery probability estimation, expected recovery calculation, anomaly clustering |
 | **AI / LLM** | FreeLLMAPI / Google Gemini, Requests | Structured advisory analysis with deterministic rule fallback |
 | **Payment Rail** | Razorpay Test Mode API | Order generation, test payment simulation, HMAC-SHA256 signature verification |
 | **Audit & Ops** | Append-only PostgreSQL Audit Trail | Idempotent event logging, immutable financial ledger records |
@@ -157,6 +190,9 @@ RecoverX Sentinel enforces strict separation of concerns between statistical pre
 ├───────────────────────┬───────────────────────┬─────────────────────────────┤
 │ Component             │ Responsibility        │ Safety Boundary             │
 ├───────────────────────┼───────────────────────┼─────────────────────────────┤
+│ Anomaly Clusterer     │ Pattern Detection     │ Groups telemetry; cannot    │
+│                       │                       │ alter transaction state.    │
+├───────────────────────┼───────────────────────┼─────────────────────────────┤
 │ ML Estimator          │ Statistical Ranking   │ Purely predictive; cannot   │
 │                       │                       │ trigger actions.            │
 ├───────────────────────┼───────────────────────┼─────────────────────────────┤
@@ -166,7 +202,7 @@ RecoverX Sentinel enforces strict separation of concerns between statistical pre
 │ Policy Engine         │ Final Authority       │ Hard deterministic code;    │
 │                       │                       │ can veto AI recommendations.│
 ├───────────────────────┼───────────────────────┼─────────────────────────────┤
-│ Recovery Executor     │ Bounded Actions       │ Only creates gated orders;  │
+│ Async Queue / Executor│ Bounded Actions       │ Only creates gated orders;  │
 │                       │                       │ never touches raw cards.    │
 ├───────────────────────┼───────────────────────┼─────────────────────────────┤
 │ Payment Verification  │ Actual Recovery Proof │ Recovery recorded ONLY      │
@@ -174,13 +210,54 @@ RecoverX Sentinel enforces strict separation of concerns between statistical pre
 └───────────────────────┴───────────────────────┴─────────────────────────────┘
 ```
 
-> **Core Principle:** AI reasoning is advisory. Recovery actions remain subject to the deterministic policy engine and are counted as recovered only after payment verification.
+> **Core Principle:** AI reasoning is advisory. Recovery actions remain subject to the deterministic policy engine and are counted as recovered only after cryptographic payment verification.
 
 ---
 
-## 7. Real-Time Production Metrics
+## 7. REST API Reference
 
-The following metrics reflect actual operational records in RecoverX Sentinel's database:
+RecoverX Sentinel provides a comprehensive, documented REST API with automatic OpenAPI documentation available at `/docs`:
+
+### Multi-Tenant & Merchants
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `GET` | `/api/merchants` | List all registered merchants |
+| `POST` | `/api/merchants` | Onboard a new merchant profile with policy thresholds |
+| `GET` | `/api/merchants/me` | Retrieve the authenticated tenant's profile |
+
+### Dashboard & Analytics
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `GET` | `/api/dashboard/kpis` | Real-time financial metrics, active incidents, dynamic risk exposure |
+| `GET` | `/api/analytics/summary` | Aggregated recovery rates, expected vs. actual values, rail performance |
+| `GET` | `/api/analytics/rails` | Payment rail performance breakdown (Cards, UPI, Netbanking) |
+| `GET` | `/api/analytics/timeseries` | Historical volume and recovery trend series |
+
+### Incidents & Revenue Leaks
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `GET` | `/api/revenue-leaks` | Query active revenue leaks with dynamic revenue-at-risk |
+| `GET` | `/api/revenue-leaks/{id}` | Detailed incident profile and associated failed transaction stream |
+
+### Recovery Engine & Asynchronous Queue
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `POST` | `/api/recovery/analyze/{id}` | Run ML ranking and advisory LLM briefing for a failed transaction |
+| `POST` | `/api/recovery/execute` | Execute single bounded recovery action via Razorpay |
+| `POST` | `/api/recovery/queue/batch` | Asynchronously enqueue a batch of transactions for background recovery |
+| `GET` | `/api/recovery/queue/jobs/{job_id}` | Poll progress and status of an asynchronous recovery batch job |
+| `POST` | `/api/recovery/verify` | Verify Razorpay HMAC-SHA256 signature and credit ledger |
+
+### Audit & Compliance
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `GET` | `/api/audit-logs` | Query immutable audit events (`RECOVERY_EXECUTED`, `RECOVERY_VERIFIED`) |
+
+---
+
+## 8. Real-Time Production Metrics
+
+The following metrics reflect verified operational records in RecoverX Sentinel's database:
 
 | Metric | Recorded Value | Description |
 | :--- | :--- | :--- |
@@ -199,22 +276,24 @@ The following metrics reflect actual operational records in RecoverX Sentinel's 
 
 ---
 
-## 8. End-to-End Demo Flow
+## 9. End-to-End Demo Flow
 
 ```
 1. Payment Failure Occurs
    └── Customer attempts ₹6,601.51 UPI transaction → Fails with "Insufficient Funds"
 
-2. Incident Clustered
-   └── Stream classifies failure under "UPI Degradation (Android / Bengaluru)"
+2. Incident Clustered & Risk Computed
+   ├── Telemetry clusters failure under "UPI Degradation (Android / Bengaluru)"
+   └── Dynamic Risk Engine calculates active exposure net of previous recoveries
 
 3. Autonomous AI Incident Analysis
    ├── ML ranks ALTERNATIVE_PAYMENT #1 (68.27% probability, ₹4,506.54 expected recovery)
    ├── LLM outlines strategy comparison: Immediate prompt for secondary rail vs. retry
    └── Deterministic Policy Engine evaluates safety rules → Status: ALLOW
 
-4. Recovery Execution
-   └── Operator clicks "Execute Recovery" → Backend creates Razorpay Order (e.g. order_Qz...)
+4. Recovery Execution (Single or Batch Queue)
+   ├── Option A: Operator executes single transaction → Immediate Razorpay Order
+   └── Option B: Operator enqueues batch of 50 transactions → Async background worker executes queue
 
 5. Customer Checkout Simulation
    └── Opens Razorpay Test Checkout portal with prefilled amount and transaction context
@@ -223,38 +302,52 @@ The following metrics reflect actual operational records in RecoverX Sentinel's 
    ├── Backend verifies payment HMAC-SHA256 signature
    ├── recovery_actions status updated: EXECUTING ──► SUCCESS
    ├── actual_recovery updated to ₹6,601.51
+   ├── Dynamic Revenue at Risk shrinks in real time across all dashboards
    └── Immutable audit log appended: RECOVERY_VERIFIED
 ```
 
 ---
 
-## 9. Engineering Challenges & Solutions
+## 10. Engineering Challenges & Solutions
 
-### 1. Unbounded LLM Latency & Hang Prevention
-- **Challenge:** Free external LLM proxies occasionally stalled or took 60+ seconds to respond, leaving the UI stuck on *"Analyzing Event Stream..."*.
+### 1. Dynamic Net Risk Computation vs. Stale Exposure Snapshots
+- **Challenge:** Traditional leak monitors freeze the total failed amount at detection time, causing dashboards to show identical risk exposure even after ₹100k+ in successful recoveries.
+- **Solution:** Designed the dynamic revenue-at-risk engine (`revenue_risk.py`) that calculates $\max(0, \text{Gross Exposure} - \text{Verified Recoveries})$ dynamically across all endpoints, providing accurate real-time financial clarity.
+
+### 2. High-Volume Recovery Throughput without Blocking Event Loop
+- **Challenge:** Processing hundreds of recovery actions synchronously caused API thread blocking, slow response times, and potential HTTP timeouts.
+- **Solution:** Implemented `RecoveryQueueService` with an asynchronous worker queue (`/api/recovery/queue/batch`). Requests return an immediate `202 Accepted` with a `job_id` that can be polled for granular completion progress.
+
+### 3. Multi-Tenant Context with Zero-Breakage Demo Mode
+- **Challenge:** Introducing multi-tenancy typically breaks existing test suites and single-tenant frontends expecting immediate parameter-free access.
+- **Solution:** Developed `get_current_merchant` dependency in `backend/app/auth.py`. It inspects headers (`X-Merchant-ID` or `Bearer`), but falls back gracefully to the first active merchant in the database when unauthenticated, guaranteeing 100% backward compatibility.
+
+### 4. Unbounded LLM Latency & Hang Prevention
+- **Challenge:** External LLM proxies occasionally stalled or took 60+ seconds to respond, leaving the UI stuck on *"Analyzing Event Stream..."*.
 - **Solution:** Implemented strict request timeouts (7s primary, 5s fallback) with an automated deterministic fallback synthesis model (`fallback_used: true`). Added a 15-second frontend `AbortController` and guaranteed `finally` state cleanup.
 
-### 2. Double-Execution & Webhook Idempotency
+### 5. Double-Execution & Webhook Idempotency
 - **Challenge:** Network retries or repeated operator clicks could create duplicate Razorpay orders or record duplicate verified amounts.
 - **Solution:** Implemented idempotency checks on `transaction_id` and unique constraints on `razorpay_order_id`, ensuring repeat verification calls return existing success records without modifying ledger totals.
 
-### 3. Incident Attribution vs. Global Ledger Discrepancy
-- **Challenge:** Transactions belonging simultaneously to multiple segments (e.g., High-Value Card + Evening Peak) caused segment action sums (6) to exceed global unique recovery actions (5).
+### 6. Incident Attribution vs. Global Ledger Discrepancy
+- **Challenge:** Transactions belonging simultaneously to multiple segments (e.g., High-Value Card + Evening Peak) caused segment action sums to exceed global unique recovery actions.
 - **Solution:** Maintained single source of truth in `recovery_actions` for financial KPIs while introducing explicit segment overlap attribution notices: *"Incident attribution may overlap when a transaction matches multiple detected revenue-leak segments."*
 
-### 4. Zero Raw Markdown & XSS-Free Safe Rendering
-- **Challenge:** AI analysis returned raw markdown tables, headers, and bold formatting that cluttered the interface or risked XSS if injected via unsanitized HTML.
+### 7. Zero Raw Markdown & XSS-Free Safe Rendering
+- **Challenge:** AI analysis returned raw markdown tables, headers, and formatting that risked XSS if injected via unsanitized HTML.
 - **Solution:** Developed `SafeMarkdownView` without `dangerouslySetInnerHTML`, parsing markdown tokens into native React UI elements with clean typography and zero raw syntax.
 
 ---
 
-## 10. Repository Structure
+## 11. Repository Structure
 
 ```
 Recovery-X-sentinel/
 ├── backend/
 │   ├── app/
 │   │   ├── main.py                  # FastAPI application & route registration
+│   │   ├── auth.py                  # Multi-tenant resolution & header authentication
 │   │   ├── database.py              # PostgreSQL engine & session lifecycle
 │   │   ├── razorpay_client.py       # Razorpay API client & HMAC verification
 │   │   ├── models/                  # SQLAlchemy ORM models
@@ -264,18 +357,31 @@ Recovery-X-sentinel/
 │   │   │   ├── revenue_leak.py
 │   │   │   ├── recovery_action.py
 │   │   │   └── audit_log.py
+│   │   ├── services/                # Asynchronous application services
+│   │   │   └── recovery_queue.py    # Background recovery queue & batch worker
 │   │   └── routes/                  # API routers
+│   │       ├── merchants.py         # Multi-tenant onboarding & profile queries
+│   │       ├── dashboard.py         # Real-time KPIs & risk telemetry
 │   │       ├── analytics.py         # Aggregated financial KPIs & rail breakdown
-│   │       ├── recovery.py          # Analyze & execute recovery workflows
-│   │       ├── revenue_leaks.py     # Incident queries & risk telemetry
+│   │       ├── recovery.py          # Analyze, execute, batch queue & verify recovery
+│   │       ├── revenue_leaks.py     # Incident queries & dynamic risk telemetry
+│   │       ├── transaction.py       # Transaction streams & single lookups
 │   │       └── audit_logs.py        # Append-only compliance events
 │   ├── requirements.txt             # Python dependencies
 │   └── .env.example                 # Sanitized environment template
 ├── agent/
 │   ├── recovery_agent.py            # ML ranking + LLM explanation orchestrator
-│   └── llm_client.py                # Dual-mode resilient LLM client with fallback
+│   ├── llm_client.py                # Dual-mode resilient LLM client with fallback
+│   ├── test_agent.py                # Autonomous agent pipeline integration tests
+│   └── test_real_agent.py           # End-to-end database pipeline validation
 ├── ml/
-│   ├── models/                      # Scikit-learn estimator definitions
+│   ├── models/                      # ML Estimator and decision logic definitions
+│   │   ├── incident_clustering.py   # Autonomous multi-dimensional anomaly clustering
+│   │   ├── revenue_risk.py          # Dynamic net revenue-at-risk engine
+│   │   ├── strategy_ranking.py      # ML recovery ranking & expected value models
+│   │   ├── policy_engine.py         # Deterministic safety rule gatekeeper
+│   │   ├── recovery_executor.py     # Bounded action executor
+│   │   └── recovery_prediction.py   # Statistical scoring utilities
 │   └── training/                    # Model training pipelines & feature engineering
 ├── data/                            # Transaction generation scripts & test seeds
 ├── frontend/
@@ -301,7 +407,7 @@ Recovery-X-sentinel/
 
 ---
 
-## 11. Quickstart & Installation
+## 12. Quickstart & Installation
 
 ### Prerequisites
 - **Python 3.11+**
@@ -365,9 +471,34 @@ FREELLMAPI_API_KEY=your_optional_api_key
 FREELLMAPI_MODEL=gemini-3.6-flash
 ```
 
+### 4. Running the Multi-Tenant Batch Queue Example
+You can trigger an asynchronous recovery batch through curl or Postman:
+```bash
+curl -X POST http://localhost:8000/api/recovery/queue/batch \
+  -H "Content-Type: application/json" \
+  -H "X-Merchant-ID: your-merchant-uuid" \
+  -d '{
+    "transaction_ids": ["tx_1", "tx_2", "tx_3"],
+    "strategy_override": "ALTERNATIVE_PAYMENT"
+  }'
+```
+Response:
+```json
+{
+  "job_id": "job_a1b2c3d4",
+  "status": "QUEUED",
+  "total_items": 3,
+  "message": "Batch recovery enqueued for background processing"
+}
+```
+Check job progress:
+```bash
+curl http://localhost:8000/api/recovery/queue/jobs/job_a1b2c3d4
+```
+
 ---
 
-## 12. Future Roadmap
+## 13. Future Roadmap
 
 - **Autonomous Webhook Listener:** Automated ingress for production payment gateway webhooks (Stripe, Razorpay, PayU).
 - **Multi-Rail Smart Routing:** Dynamic switching between acquirers based on real-time bank health telemetry.
@@ -376,10 +507,6 @@ FREELLMAPI_MODEL=gemini-3.6-flash
 
 ---
 
-## 13. License
+## 14. License
 
 Distributed under the **MIT License**. See `LICENSE` for more information.
-
----
-
-
