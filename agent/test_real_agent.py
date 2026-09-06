@@ -1,7 +1,14 @@
-from sqlalchemy import text
+import os
+import sys
 
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
+from sqlalchemy import text
 from backend.app.database import SessionLocal
 from agent.recovery_agent import analyze_recovery
+from ml.models.revenue_risk import get_incident_revenue_risk
 
 
 TRANSACTION_ID = "0abfd9eb-19f7-40ff-9267-82ee3e11ca62"
@@ -138,10 +145,18 @@ try:
         incident_type = "NORMAL"
     transaction["incident_type"] = incident_type
     # ---------------------------------------------------------
-    # Revenue at risk
+    # Revenue at risk (dynamic from risk engine)
     # ---------------------------------------------------------
 
-    revenue_at_risk = transaction["amount"]
+    incident_risk = get_incident_revenue_risk(
+        incident_type,
+        merchant_id=transaction.get("merchant_id"),
+        db=db
+    )
+    if incident_risk and incident_risk.get("revenue_at_risk") is not None:
+        revenue_at_risk = float(incident_risk["revenue_at_risk"])
+    else:
+        revenue_at_risk = float(transaction["amount"])
 
     # ---------------------------------------------------------
     # Run RecoverX Sentinel
@@ -149,7 +164,7 @@ try:
     result = analyze_recovery(
         transaction,
         incident_type,
-        revenue_at_risk=transaction["amount"],
+        revenue_at_risk=revenue_at_risk,
         execute=True
     )
 

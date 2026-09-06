@@ -1,6 +1,13 @@
+import os
+import sys
 import pandas as pd
 
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
 from agent.recovery_agent import analyze_recovery
+from ml.models.revenue_risk import get_incident_revenue_risk
 
 
 # ---------------------------------------------------------
@@ -36,13 +43,14 @@ amount = float(
 
 
 # ---------------------------------------------------------
-# For this test, use the transaction amount as the
-# revenue-at-risk value.
-#
-# Later this will come from our revenue-at-risk engine.
+# Dynamic revenue at risk from revenue risk engine
 # ---------------------------------------------------------
 
-revenue_at_risk = amount
+risk_data = get_incident_revenue_risk(incident_type)
+if risk_data and risk_data.get("revenue_at_risk") is not None:
+    revenue_at_risk = float(risk_data["revenue_at_risk"])
+else:
+    revenue_at_risk = amount
 
 
 # ---------------------------------------------------------

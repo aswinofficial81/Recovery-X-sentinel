@@ -3,6 +3,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from backend.app.database import get_db
+from ml.models.revenue_risk import calculate_all_revenue_risks
 
 router = APIRouter(
     prefix="/api/analytics",
@@ -16,13 +17,23 @@ MERCHANT_ID = "3efe1ed9-6767-47ca-9f2e-27bada51fb81"
 def get_analytics(
     db: Session = Depends(get_db)
 ):
-    # 1. Summary Metrics
-    leak_res = db.execute(text("""
-        SELECT COALESCE(SUM(revenue_impact), 0) AS revenue_at_risk
-        FROM revenue_leaks
-        WHERE merchant_id = :merchant_id AND status = 'OPEN';
-    """), {"merchant_id": MERCHANT_ID}).mappings().one()
-    revenue_at_risk = float(leak_res["revenue_at_risk"] or 0)
+    # 1. Dynamic Incident Risks & Summary Metrics
+    try:
+        dynamic_risks = calculate_all_revenue_risks(merchant_id=MERCHANT_ID, db=db)
+        incident_metrics = dynamic_risks.get("incidents", {})
+        revenue_at_risk = sum(
+            float(inc.get("revenue_at_risk", 0.0))
+            for inc in incident_metrics.values()
+        )
+    except Exception as e:
+        print(f"[ANALYTICS] Dynamic risk calculation fallback: {e}", flush=True)
+        incident_metrics = {}
+        leak_res = db.execute(text("""
+            SELECT COALESCE(SUM(revenue_impact), 0) AS revenue_at_risk
+            FROM revenue_leaks
+            WHERE merchant_id = :merchant_id AND status = 'OPEN';
+        """), {"merchant_id": MERCHANT_ID}).mappings().one()
+        revenue_at_risk = float(leak_res["revenue_at_risk"] or 0)
 
     recovery_res = db.execute(text("""
         SELECT
@@ -74,19 +85,18 @@ def get_analytics(
         FROM recovery_actions ra
         JOIN transactions t ON t.id = ra.transaction_id
         WHERE t.merchant_id = :merchant_id
-        GROUP BY ra.action_type
-        ORDER BY attempts DESC;
+        GROUP BY ra.action_type;
     """), {"merchant_id": MERCHANT_ID}).mappings().all()
 
     strategy_performance = []
     for s in strat_rows:
-        att = int(s["attempts"])
-        succ = int(s["successes"])
-        rate = (succ / att * 100) if att > 0 else 0.0
+        attempts = int(s["attempts"])
+        successes = int(s["successes"])
+        rate = (successes / attempts * 100) if attempts > 0 else 0.0
         strategy_performance.append({
             "strategy": s["strategy"],
-            "attempts": att,
-            "successes": succ,
+            "attempts": attempts,
+            "successes": successes,
             "success_rate": round(rate, 2),
             "expected_recovery": round(float(s["expected_recovery"] or 0), 2),
             "actual_recovery": round(float(s["actual_recovery"] or 0), 2)
@@ -155,10 +165,13 @@ def get_analytics(
             if a["status"] == "SUCCESS"
         )
 
+        dyn_incident = incident_metrics.get(l_type)
+        dyn_risk = float(dyn_incident["revenue_at_risk"]) if dyn_incident else float(l["revenue_impact"] or 0)
+
         incident_performance.append({
             "incident_type": l_type,
             "description": l["description"],
-            "revenue_at_risk": round(float(l["revenue_impact"] or 0), 2),
+            "revenue_at_risk": round(dyn_risk, 2),
             "actions": acts,
             "successful": succ,
             "actual_recovery": round(act_rec, 2)
@@ -175,47 +188,45 @@ def get_analytics(
         FROM recovery_actions ra
         JOIN transactions t ON t.id = ra.transaction_id
         WHERE t.merchant_id = :merchant_id
-        GROUP BY t.payment_method
-        ORDER BY attempts DESC;
+        GROUP BY t.payment_method;
     """), {"merchant_id": MERCHANT_ID}).mappings().all()
 
     payment_method_performance = []
     for pm in pm_rows:
-        att = int(pm["attempts"])
+        attempts = int(pm["attempts"])
         succ = int(pm["successful"])
-        rate = (succ / att * 100) if att > 0 else 0.0
+        rate = (succ / attempts * 100) if attempts > 0 else 0.0
         payment_method_performance.append({
-            "payment_method": pm["payment_method"] or "UNKNOWN",
-            "attempts": att,
+            "payment_method": pm["payment_method"],
+            "attempts": attempts,
             "successful": succ,
             "success_rate": round(rate, 2),
             "expected_recovery": round(float(pm["expected_recovery"] or 0), 2),
             "actual_recovery": round(float(pm["actual_recovery"] or 0), 2)
         })
 
-    # 5. Recovery Timeline (Sorted oldest to newest by created_at)
+    # 5. Recovery Timeline (Cumulative recoveries over date)
     timeline_rows = db.execute(text("""
         SELECT
-            TO_CHAR(ra.created_at, 'YYYY-MM-DD') AS date,
-            COUNT(*) AS total_actions,
-            COUNT(*) FILTER (WHERE ra.status = 'SUCCESS') AS successful_actions,
-            COALESCE(SUM(ra.expected_recovery), 0) AS expected_recovery,
-            COALESCE(SUM(ra.actual_recovery) FILTER (WHERE ra.status = 'SUCCESS'), 0) AS actual_recovery
-        FROM recovery_actions ra
-        JOIN transactions t ON t.id = ra.transaction_id
-        WHERE t.merchant_id = :merchant_id
-        GROUP BY TO_CHAR(ra.created_at, 'YYYY-MM-DD')
-        ORDER BY date ASC;
-    """), {"merchant_id": MERCHANT_ID}).mappings().all()
+            DATE(executed_at) AS rec_date,
+            COALESCE(SUM(actual_recovery) FILTER (WHERE status = 'SUCCESS'), 0) AS daily_recovered,
+            COUNT(*) FILTER (WHERE status = 'SUCCESS') AS successful_actions
+        FROM recovery_actions
+        WHERE executed_at IS NOT NULL
+        GROUP BY DATE(executed_at)
+        ORDER BY rec_date ASC;
+    """)).mappings().all()
 
     recovery_timeline = []
-    for tl in timeline_rows:
+    cumulative = 0.0
+    for r in timeline_rows:
+        daily = float(r["daily_recovered"] or 0)
+        cumulative += daily
         recovery_timeline.append({
-            "date": tl["date"],
-            "total_actions": int(tl["total_actions"]),
-            "successful_actions": int(tl["successful_actions"]),
-            "expected_recovery": round(float(tl["expected_recovery"] or 0), 2),
-            "actual_recovery": round(float(tl["actual_recovery"] or 0), 2)
+            "date": r["rec_date"].isoformat() if r["rec_date"] else None,
+            "daily_recovered": round(daily, 2),
+            "cumulative_recovered": round(cumulative, 2),
+            "successful_actions": int(r["successful_actions"])
         })
 
     return {

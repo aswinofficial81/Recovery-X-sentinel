@@ -3,6 +3,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from backend.app.database import get_db
+from ml.models.revenue_risk import calculate_all_revenue_risks
 
 
 router = APIRouter(
@@ -68,6 +69,18 @@ def get_dashboard(
         {"merchant_id": MERCHANT_ID}
     ).mappings().one()
 
+    # Dynamically compute total net revenue at risk across active incidents
+    try:
+        dynamic_risks = calculate_all_revenue_risks(merchant_id=MERCHANT_ID, db=db)
+        incident_metrics = dynamic_risks.get("incidents", {})
+        total_revenue_at_risk = sum(
+            float(inc.get("revenue_at_risk", 0.0))
+            for inc in incident_metrics.values()
+        )
+    except Exception as e:
+        print(f"[DASHBOARD] Dynamic risk calculation fallback: {e}", flush=True)
+        total_revenue_at_risk = float(leak_result["total_revenue_at_risk"])
+
     total_transactions = transaction_result["total_transactions"]
     successful_transactions = transaction_result["successful_transactions"]
 
@@ -84,7 +97,5 @@ def get_dashboard(
         "success_rate": round(success_rate, 2),
         "total_revenue": float(transaction_result["total_revenue"]),
         "open_leaks": leak_result["open_leaks"],
-        "total_revenue_at_risk": float(
-            leak_result["total_revenue_at_risk"]
-        )
+        "total_revenue_at_risk": round(total_revenue_at_risk, 2)
     }

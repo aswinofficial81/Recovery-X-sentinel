@@ -6,6 +6,7 @@ from backend.app.database import get_db
 from ml.models.recovery_executor import execute_recovery
 from ml.models.recovery_executor import verify_recovery
 from agent.recovery_agent import analyze_recovery
+from ml.models.revenue_risk import get_incident_revenue_risk
 
 
 router = APIRouter(
@@ -326,6 +327,9 @@ def analyze_transaction(
     )
 
     # Incident classification
+    tx_time = transaction.get("transaction_time")
+    tx_hour = tx_time.hour if (tx_time and hasattr(tx_time, "hour")) else None
+
     if (
         transaction["payment_method"] == "CARD"
         and transaction["amount"] >= 10000
@@ -340,13 +344,27 @@ def analyze_transaction(
     ):
         incident_type = "UPI_DEGRADATION"
 
+    elif tx_hour is not None and 18 <= tx_hour < 20:
+        incident_type = "EVENING_DEGRADATION"
+
     else:
         incident_type = "NORMAL"
+
+    # Dynamic Revenue at Risk from risk engine
+    incident_risk = get_incident_revenue_risk(
+        incident_type,
+        merchant_id=transaction.get("merchant_id"),
+        db=db
+    )
+    if incident_risk and incident_risk.get("revenue_at_risk") is not None:
+        dynamic_revenue_at_risk = float(incident_risk["revenue_at_risk"])
+    else:
+        dynamic_revenue_at_risk = float(transaction["amount"])
 
     result = analyze_recovery(
         transaction,
         incident_type,
-        revenue_at_risk=transaction["amount"],
+        revenue_at_risk=dynamic_revenue_at_risk,
         execute=False
     )
 
