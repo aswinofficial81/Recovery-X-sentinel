@@ -3,19 +3,21 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from backend.app.database import get_db
+from backend.app.auth import get_current_merchant
 
 router = APIRouter(
     prefix="/api/audit-logs",
     tags=["Audit Logs"]
 )
 
-MERCHANT_ID = "3efe1ed9-6767-47ca-9f2e-27bada51fb81"
-
 
 @router.get("")
 def get_audit_logs(
+    merchant: dict = Depends(get_current_merchant),
     db: Session = Depends(get_db)
 ):
+    merchant_id = merchant["id"]
+
     query = text("""
         SELECT
             id,
@@ -33,7 +35,7 @@ def get_audit_logs(
 
     rows = db.execute(
         query,
-        {"merchant_id": MERCHANT_ID}
+        {"merchant_id": merchant_id}
     ).mappings().all()
 
     logs = []
@@ -55,6 +57,10 @@ def get_audit_logs(
         })
 
     return {
+        "merchant": {
+            "id": merchant["id"],
+            "name": merchant["name"]
+        },
         "count": len(logs),
         "logs": logs
     }

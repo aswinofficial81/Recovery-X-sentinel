@@ -3,6 +3,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from backend.app.database import get_db
+from backend.app.auth import get_current_merchant
 from ml.models.revenue_risk import calculate_all_revenue_risks
 
 
@@ -14,10 +15,13 @@ router = APIRouter(
 
 @router.get("")
 def get_revenue_leaks(
+    merchant: dict = Depends(get_current_merchant),
     db: Session = Depends(get_db)
 ):
-    # Dynamically compute real-time incident risks and remaining exposure
-    dynamic_risks = calculate_all_revenue_risks(db=db)
+    merchant_id = merchant["id"]
+
+    # Dynamically compute real-time incident risks and remaining exposure for this tenant
+    dynamic_risks = calculate_all_revenue_risks(merchant_id=merchant_id, db=db)
     incident_metrics = dynamic_risks.get("incidents", {})
 
     query = text("""
@@ -34,10 +38,11 @@ def get_revenue_leaks(
             status,
             detected_at
         FROM revenue_leaks
+        WHERE merchant_id = :merchant_id
         ORDER BY revenue_impact DESC;
     """)
 
-    result = db.execute(query).fetchall()
+    result = db.execute(query, {"merchant_id": merchant_id}).fetchall()
 
     leaks = []
 
@@ -103,6 +108,10 @@ def get_revenue_leaks(
     leaks.sort(key=lambda x: x["revenue_impact"], reverse=True)
 
     return {
+        "merchant": {
+            "id": merchant["id"],
+            "name": merchant["name"]
+        },
         "count": len(leaks),
         "leaks": leaks
     }

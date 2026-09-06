@@ -8,6 +8,7 @@ from backend.app.routes.dashboard import router as dashboard_router
 from backend.app.routes.recovery import router as recovery_router
 from backend.app.routes.audit_logs import router as audit_logs_router
 from backend.app.routes.analytics import router as analytics_router
+from backend.app.routes.merchants import router as merchants_router
 
 app = FastAPI(
     title="Revenue AutoPilot API",
@@ -20,6 +21,7 @@ app.include_router(dashboard_router)
 app.include_router(recovery_router)
 app.include_router(audit_logs_router)
 app.include_router(analytics_router)
+app.include_router(merchants_router)
 
 import os
 

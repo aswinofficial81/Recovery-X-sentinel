@@ -3,6 +3,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from backend.app.database import get_db
+from backend.app.auth import get_current_merchant
 from ml.models.revenue_risk import calculate_all_revenue_risks
 
 router = APIRouter(
@@ -10,16 +11,17 @@ router = APIRouter(
     tags=["Analytics"]
 )
 
-MERCHANT_ID = "3efe1ed9-6767-47ca-9f2e-27bada51fb81"
-
 
 @router.get("")
 def get_analytics(
+    merchant: dict = Depends(get_current_merchant),
     db: Session = Depends(get_db)
 ):
+    merchant_id = merchant["id"]
+
     # 1. Dynamic Incident Risks & Summary Metrics
     try:
-        dynamic_risks = calculate_all_revenue_risks(merchant_id=MERCHANT_ID, db=db)
+        dynamic_risks = calculate_all_revenue_risks(merchant_id=merchant_id, db=db)
         incident_metrics = dynamic_risks.get("incidents", {})
         revenue_at_risk = sum(
             float(inc.get("revenue_at_risk", 0.0))
@@ -32,7 +34,7 @@ def get_analytics(
             SELECT COALESCE(SUM(revenue_impact), 0) AS revenue_at_risk
             FROM revenue_leaks
             WHERE merchant_id = :merchant_id AND status = 'OPEN';
-        """), {"merchant_id": MERCHANT_ID}).mappings().one()
+        """), {"merchant_id": merchant_id}).mappings().one()
         revenue_at_risk = float(leak_res["revenue_at_risk"] or 0)
 
     recovery_res = db.execute(text("""
@@ -47,7 +49,7 @@ def get_analytics(
         FROM recovery_actions ra
         JOIN transactions t ON t.id = ra.transaction_id
         WHERE t.merchant_id = :merchant_id;
-    """), {"merchant_id": MERCHANT_ID}).mappings().one()
+    """), {"merchant_id": merchant_id}).mappings().one()
 
     total_actions = int(recovery_res["total_actions"])
     successful_actions = int(recovery_res["successful_actions"])
@@ -86,7 +88,7 @@ def get_analytics(
         JOIN transactions t ON t.id = ra.transaction_id
         WHERE t.merchant_id = :merchant_id
         GROUP BY ra.action_type;
-    """), {"merchant_id": MERCHANT_ID}).mappings().all()
+    """), {"merchant_id": merchant_id}).mappings().all()
 
     strategy_performance = []
     for s in strat_rows:
@@ -108,7 +110,7 @@ def get_analytics(
         FROM revenue_leaks
         WHERE merchant_id = :merchant_id
         ORDER BY revenue_impact DESC;
-    """), {"merchant_id": MERCHANT_ID}).mappings().all()
+    """), {"merchant_id": merchant_id}).mappings().all()
 
     tx_rows = db.execute(text("""
         SELECT
@@ -123,7 +125,7 @@ def get_analytics(
         FROM recovery_actions ra
         JOIN transactions t ON t.id = ra.transaction_id
         WHERE t.merchant_id = :merchant_id;
-    """), {"merchant_id": MERCHANT_ID}).mappings().all()
+    """), {"merchant_id": merchant_id}).mappings().all()
 
     incident_performance = []
     for l in leaks:
@@ -189,7 +191,7 @@ def get_analytics(
         JOIN transactions t ON t.id = ra.transaction_id
         WHERE t.merchant_id = :merchant_id
         GROUP BY t.payment_method;
-    """), {"merchant_id": MERCHANT_ID}).mappings().all()
+    """), {"merchant_id": merchant_id}).mappings().all()
 
     payment_method_performance = []
     for pm in pm_rows:
@@ -205,17 +207,19 @@ def get_analytics(
             "actual_recovery": round(float(pm["actual_recovery"] or 0), 2)
         })
 
-    # 5. Recovery Timeline (Cumulative recoveries over date)
+    # 5. Recovery Timeline (Scoped to merchant)
     timeline_rows = db.execute(text("""
         SELECT
-            DATE(executed_at) AS rec_date,
-            COALESCE(SUM(actual_recovery) FILTER (WHERE status = 'SUCCESS'), 0) AS daily_recovered,
-            COUNT(*) FILTER (WHERE status = 'SUCCESS') AS successful_actions
-        FROM recovery_actions
-        WHERE executed_at IS NOT NULL
-        GROUP BY DATE(executed_at)
+            DATE(ra.executed_at) AS rec_date,
+            COALESCE(SUM(ra.actual_recovery) FILTER (WHERE ra.status = 'SUCCESS'), 0) AS daily_recovered,
+            COUNT(*) FILTER (WHERE ra.status = 'SUCCESS') AS successful_actions
+        FROM recovery_actions ra
+        JOIN transactions t ON t.id = ra.transaction_id
+        WHERE ra.executed_at IS NOT NULL
+          AND t.merchant_id = :merchant_id
+        GROUP BY DATE(ra.executed_at)
         ORDER BY rec_date ASC;
-    """)).mappings().all()
+    """), {"merchant_id": merchant_id}).mappings().all()
 
     recovery_timeline = []
     cumulative = 0.0
@@ -230,6 +234,10 @@ def get_analytics(
         })
 
     return {
+        "merchant": {
+            "id": merchant["id"],
+            "name": merchant["name"]
+        },
         "summary": summary,
         "strategy_performance": strategy_performance,
         "incident_performance": incident_performance,

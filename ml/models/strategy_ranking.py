@@ -214,15 +214,21 @@ def prepare_transactions(
         .fillna(0)
     )
 
-    combined["is_high_value"] = (
-        combined["is_high_value"]
-        .fillna(False)
-    )
+    if "is_high_value" not in combined.columns:
+        combined["is_high_value"] = combined["amount"] >= 10000
+    else:
+        combined["is_high_value"] = (
+            combined["is_high_value"]
+            .fillna(combined["amount"] >= 10000)
+        )
 
-    combined["transaction_velocity"] = (
-        combined["transaction_velocity"]
-        .fillna(0)
-    )
+    if "transaction_velocity" not in combined.columns:
+        combined["transaction_velocity"] = 0
+    else:
+        combined["transaction_velocity"] = (
+            combined["transaction_velocity"]
+            .fillna(0)
+        )
 
 
     return combined
